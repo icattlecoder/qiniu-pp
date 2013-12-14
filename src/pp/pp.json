@@ -1,0 +1,9 @@
+{
+    "redmine_host": "http://pm.qbox.me/redmine",
+    "doing_status": [84],
+    "read2pub_status": [80],
+    "finished_status": [5],
+    "lastmonth_date": 1,
+    "currentmonth_date": 5,
+    "app_key": "e7c4b4d0013c62055596bfcf4e389f339f28c964"
+}
