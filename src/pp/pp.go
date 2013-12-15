@@ -151,24 +151,33 @@ func (p *pp) getIssuses() {
 	limitdate := p.getDate()
 
 	{
-		cnt := 0
-		iss := Issues{}
-		err := p.get(fmt.Sprintf("/issues.json?status_id=5&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", 0, limitdate), &iss)
-		if err != nil {
-			log.Println(err)
-		} else {
-			p.finished = iss
-		}
-		cnt = len(iss.Issues)
-		for cnt < iss.Total_count {
-			err = p.get(fmt.Sprintf("/issues.json?status_id=5&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", cnt, limitdate), &iss)
+
+		p.finished = Issues{}
+
+		for _, v := range p.config.FINISHED_STATUS {
+			cnt := 0
+			iss := Issues{}
+			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, 0, limitdate)
+			err := p.get(url, &iss)
 			if err != nil {
 				log.Println(err)
 			} else {
+				p.finished.Total_count += iss.Total_count
 				p.finished.Issues = append(p.finished.Issues, iss.Issues...)
-				cnt += len(iss.Issues)
+			}
+			cnt = len(iss.Issues)
+			for cnt < iss.Total_count {
+				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+				err = p.get(url, &iss)
+				if err != nil {
+					log.Println(err)
+				} else {
+					p.finished.Issues = append(p.finished.Issues, iss.Issues...)
+					cnt += len(iss.Issues)
+				}
 			}
 		}
+
 		go (func() {
 			for k, v := range p.finished.Issues {
 				p.finished.Issues[k].Author.Name = p.getAuthor(v.Id)
@@ -176,27 +185,32 @@ func (p *pp) getIssuses() {
 				p.finished.Issues[k].Updated_on = v.Updated_on[0:10]
 			}
 		})()
+
 	}
 
 	{
-
-		iss := Issues{}
-		cnt := 0
-		err := p.get(fmt.Sprintf("/issues.json?status_id=80&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", cnt, limitdate), &iss)
-		if err != nil {
-			log.Println(err)
-		} else {
-			p.readyToPub = iss
-			p.readyToPub.Issues = append(p.readyToPub.Issues, iss.Issues...)
-		}
-		cnt = len(iss.Issues)
-		for cnt < iss.Total_count {
-			err = p.get(fmt.Sprintf("/issues.json?status_id=80&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", cnt, limitdate), &iss)
+		p.readyToPub = Issues{}
+		for _, v := range p.config.PUBLISHING_STATUS {
+			cnt := 0
+			iss := Issues{}
+			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+			err := p.get(url, &iss)
 			if err != nil {
 				log.Println(err)
 			} else {
-				cnt += len(iss.Issues)
+				p.readyToPub.Total_count += iss.Total_count
 				p.readyToPub.Issues = append(p.readyToPub.Issues, iss.Issues...)
+			}
+			cnt = len(iss.Issues)
+			for cnt < iss.Total_count {
+				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+				err = p.get(url, &iss)
+				if err != nil {
+					log.Println(err)
+				} else {
+					p.readyToPub.Issues = append(p.readyToPub.Issues, iss.Issues...)
+					cnt += len(iss.Issues)
+				}
 			}
 		}
 
@@ -288,27 +302,29 @@ func (p *pp) IssueHandler(w http.ResponseWriter, r *http.Request) {
 
 func (p *pp) _ready2pub(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.readyToPub)
-	res := string(bytes)
-	// w.Write(res)
-	fmt.Fprintf(w, res)
+	// res := string(bytes)
+	w.Write(bytes)
 }
 func (p *pp) _finished(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.finished)
-	res := string(bytes)
+	w.Write(bytes)
+	// res := string(bytes)
 	// w.Write(res)
-	fmt.Fprintf(w, res)
+	// fmt.Fprintf(w, res)
 }
 func (p *pp) _lastedready(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.latestReady)
-	res := string(bytes)
+	w.Write(bytes)
+	// res := string(bytes)
 	// w.Write(res)
-	fmt.Fprintf(w, res)
+	// fmt.Fprintf(w, res)
 }
 func (p *pp) _lastedfinished(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.latestFinished)
-	res := string(bytes)
+	w.Write(bytes)
+	// res := string(bytes)
 	// w.Write(res)
-	fmt.Fprintf(w, res)
+	// fmt.Fprintf(w, res)
 }
 
 func (p *pp) Notice(msg string, iss Issue_Comm) {
