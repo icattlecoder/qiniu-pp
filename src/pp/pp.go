@@ -104,13 +104,18 @@ func (p *pp) getDate() string {
 	now := time.Now()
 	year := now.Year()
 	mon := now.Month()
-	lastmon := mon - 1
+	date := now.Day()
 	lastyear := year
+	if date < p.config.CURRENTMONTHDATE {
+		mon -= 1
+	}
+	lastmon := mon - 1
 	if mon == 1 {
 		lastyear -= 1
 		lastmon = 12
 	}
-	return "%3E%3C" + fmt.Sprintf("%d-%02d-%02d|%d-%02d-%02d", year, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
+	p.dateStr = fmt.Sprintf("%d-%02d-%02d至%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
+	return "%3E%3C" + fmt.Sprintf("%d-%02d-%02d|%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
 }
 
 func (p *pp) getIssuses() {
@@ -267,6 +272,7 @@ type pp struct {
 	rawprojects    Projects
 	Projects       map[int]string
 	sio            *socketio.SocketIOServer
+	dateStr        string
 }
 
 func setCORSHeaders(w http.ResponseWriter, req *http.Request) {
@@ -331,6 +337,7 @@ func (p *pp) Notice(msg string, iss Issue_Comm) {
 	body, err := json.Marshal(iss)
 	if err == nil {
 		p.sio.Broadcast(msg, string(body))
+		log.Println("Broadcast:", msg, ",body:", string(body))
 	}
 }
 
@@ -476,7 +483,8 @@ func (p *pp) Run() {
 	p.sio.HandleFunc("/issues/finished", func(w http.ResponseWriter, r *http.Request) { p._finished(w, r) })
 	p.sio.HandleFunc("/issues/lastedready", func(w http.ResponseWriter, r *http.Request) { p._lastedready(w, r) })
 	p.sio.HandleFunc("/issues/lastedfinished", func(w http.ResponseWriter, r *http.Request) { p._lastedfinished(w, r) })
-	p.sio.HandleFunc("/listener/", func(w http.ResponseWriter, r *http.Request) { p.Listener(w, r) })
+	p.sio.HandleFunc("/listener", func(w http.ResponseWriter, r *http.Request) { p.Listener(w, r) })
+	p.sio.HandleFunc("/querydate", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(p.dateStr)) })
 	p.sio.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) { p.proxy(w, r) })
 
 	err := p.init()
