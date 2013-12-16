@@ -2,11 +2,9 @@
 <html>
 
 <head>
-    <title>七牛云存储 | 项目研发进度可视化</title>
     <link rel='stylesheet' type='text/css' href='/static/bootstrap.min.css' />
     <link rel='stylesheet' type='text/css' href='/static/main.css' />
     <link rel="stylesheet" href="/static/jquery.simplyscroll.css" media="all" type="text/css">
-    <link rel="stylesheet" type="text/css" href="http://www.jeasyui.com/easyui/themes/default/easyui.css">
     <style type="text/css">
     .sr-only {
         /*position: relative;*/
@@ -63,86 +61,71 @@
     </style>
 </head>
 
-<body class="container-fluid easyui-layout">
-    <div region="west" class=" col-md-6 col-left">
-        <div class="alert alert-warning">
-            <h3>已完成开发
-                <a href="#">
-                    <span id="badge_ready" class="badge"></span>
-                </a>
-            </h3>
+<body class="container-fluid">
+    <div class="row navbar-fixed-top">
+        <div class="col-md-6 col-left">
+            <div class="alert alert-warning">
+                <h3>已完成开发<a href="#"> <span id="badge_ready" class="badge">42</span></a></h3>
+            </div>
+            <table class="table faketable">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
+            </table>
         </div>
-        <table class="table faketable">
-            <thead>
-                <tr>
-                    <th class="th-subject">任务</th>
-                    <th class="th-author">作者</th>
-                    <th class="th-time">完成时间</th>
-                </tr>
-            </thead>
-        </table>
-
-        最新已完成开发：
-        <table class="topfixed">
-            <tbody id="lastedready"></tbody>
-        </table>
-        <div id="querydate1">
-        </div>
-        <div id="scroller1">
-
-            <table class="table table-striped">
-                <tbody id="ready2pub">
-                </tbody>
+        <div class="col-md-6 col-right">
+            <div class="alert alert-success">
+                <h3>已发布<a href="#"> <span id="badge_finished"  class="badge">42</span></a></h3>
+            </div>
+            <table class="table faketable">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
             </table>
         </div>
     </div>
-    <div region="east" id="scrollH" class="col-md-6 col-right">
 
-        <div class="alert alert-success">
-            <h3>已发布
-                <a href="#">
-                    <span id="badge_finished" class="badge"></span>
-                </a>
-            </h3>
-        </div>
-        <table class="table faketable">
-            <thead>
-                <tr>
-                    <th class="th-subject">任务</th>
-                    <th class="th-author">作者</th>
-                    <th class="th-time">完成时间</th>
-                </tr>
-            </thead>
-        </table>
-        最新已发布：
-        <table class="topfixed">
-            <tbody id="lastedfinished"></tbody>
-        </table>
-        <div id="querydate2">
-        </div>
-        <div id="scroller2">
-            <table class="table table-striped">
-                <tbody id="finished">
-                </tbody>
+    <div class="row">
+        <div class="col-md-6 col-left">
+            <table class="topfixed">
+                <tbody id="lastedready"></tbody>
             </table>
+            <div id="scroller1">
+                <table class="table table-striped">
+                    <tbody id="ready2pub">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="scrollH" class="col-md-6 col-right">
+            <table class="topfixed">
+                <tbody id="lastedfinished"></tbody>
+            </table>
+            <div id="scroller2">
+                <table class="table table-striped">
+                    <tbody id="finished">
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <script type="text/javascript" src="http://cdn.staticfile.org/jquery/2.0.3/jquery.min.js"></script>
     <script type="text/javascript" src="/static/socket.io.js"></script>
     <script type="text/javascript" src="/static/jquery.tmpl.min.js"></script>
-    <script type="text/javascript" src="http://www.jeasyui.com/easyui/jquery.easyui.min.js"></script>
     <script type="text/javascript" src="/static/bootstrap.min.js"></script>
     <script type="text/javascript" src="/static/jquery.simplyscroll.min.js"></script>
     <script type="text/javascript">
+    var msg;
     $(function() {
-
-        $.get("/querydate", function(data) {
-            data += ":";
-            $("#querydate1").text(data)
-            $("#querydate2").text(data)
-        });
-
         var markup = "<tr>" +
             '<td class="th-subject"><b>[${project.name}]</b>${subject}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
             '<td class="th-author">${author.name}</td>' +
@@ -162,12 +145,18 @@
             console.log(data)
             $("#badge_ready").text(data.issues.length)
             $.tmpl("issues", data.issues).appendTo("#ready2pub");
+            // $("#scroller1").simplyScroll({
+            //     orientation: 'vertical'
+            // });
             return
         });
         $.getJSON("/issues/finished", function(data) {
             console.log(data)
             $("#badge_finished").text(data.issues.length)
             $.tmpl("issues", data.issues).appendTo("#finished");
+            // $("#scroller2").simplyScroll({
+            //     orientation: 'vertical'
+            // });
             return
         });
         var socket = io.connect();
@@ -175,7 +164,7 @@
         socket.on("connect", function() {})
 
         socket.on("ready", function(message, urgency) {
-            var msg = JSON.parse(message)
+            msg = JSON.parse(message)
             var trs = $("#lastedready").children("tr");
             if (trs && trs.length > 0) {
                 trs[trs.length - 1].remove()
@@ -185,7 +174,7 @@
         })
 
         socket.on("finished", function(message, urgency) {
-            var msg = JSON.parse(message)
+            msg = JSON.parse(message)
             var trs = $("#lastedfinished").children("tr");
             if (trs && trs.length > 0) {
                 trs[trs.length - 1].remove()
