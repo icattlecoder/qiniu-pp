@@ -1,9 +1,5 @@
 package main
 
-import (
-	"errors"
-)
-
 //============issue==========================
 type Issue_status struct {
 	Name string `json:"name"`
@@ -86,17 +82,12 @@ type Projects struct {
 	Projects    []Project `json:"projects"`
 }
 
-func (i *Issues) Pop() (iss Issue_Comm, err error) {
-
-	if len(i.Issues) < 1 {
-		err = errors.New("no issues")
-		return
-	}
-	iss = i.Issues[0]
-	i.Issues = i.Issues[1:]
-	return
-}
-
 func (i *Issues) Push(iss Issue_Comm) {
-	i.Issues = append(i.Issues, iss)
+
+	l := len(i.Issues)
+	for k := l - 1; k > 0; k-- {
+		i.Issues[k] = i.Issues[k-1]
+	}
+	i.Issues[0] = iss
+
 }

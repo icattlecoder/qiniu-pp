@@ -123,7 +123,7 @@ func (p *pp) getDate() string {
 	return "%3E%3C" + fmt.Sprintf("%d-%02d-%02d|%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
 }
 
-func (p *pp) getIssuses() {
+func (p *pp) getLatest() {
 
 	{
 		iss := Issues{}
@@ -158,6 +158,13 @@ func (p *pp) getIssuses() {
 			})()
 		}
 	}
+
+}
+
+func (p *pp) getIssuses() {
+
+	p.getLatest()
+
 	limitdate := p.getDate()
 
 	{
@@ -278,6 +285,7 @@ type pp struct {
 	Projects       map[int]string
 	sio            *socketio.SocketIOServer
 	dateStr        string
+	lastUpdate     time.Time
 }
 
 func setCORSHeaders(w http.ResponseWriter, req *http.Request) {
@@ -351,16 +359,15 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 			is.Updated_on = is.Updated_on[0:10]
 			for k, v := range p.latestReady.Issues {
 				if v.Id == int(iid) {
+					p.latestReady.Issues[k].Project.Name = p.getTopProject(is.Project.Id)
 					p.latestReady.Issues[k].Author.Name = is.Author.Name
 					p.latestReady.Issues[k].Updated_on = is.Updated_on[0:10]
 					return
 				}
 			}
-			p.latestReady.Pop()
 			p.latestReady.Push(is)
 			p.Notice("ready", is)
 		})()
-
 	} else if in(int(istatus_id), p.config.FINISHED_STATUS) {
 		go (func() {
 			is, err := p.getIssue(int(iid))
@@ -373,12 +380,12 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 
 			for k, v := range p.finished.Issues {
 				if v.Id == int(iid) {
+					p.finished.Issues[k].Project.Name = p.getTopProject(is.Project.Id)
 					p.finished.Issues[k].Author.Name = is.Author.Name
 					p.finished.Issues[k].Updated_on = is.Updated_on[0:10]
 					return
 				}
 			}
-			p.finished.Pop()
 			p.finished.Push(is)
 			p.Notice("finished", is)
 		})()
@@ -428,6 +435,18 @@ func (p *pp) proxy(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, string(body))
 }
 
+func (p *pp) fresh(w http.ResponseWriter, r *http.Request) {
+
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+	}
+	name := r.FormValue("name")
+	if name == "wangming" {
+		p.getIssuses()
+	}
+}
+
 func staticDirHandler(mux *socketio.SocketIOServer, prefix string, staticDir string, flags int) {
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
 		file := staticDir + r.URL.Path[len(prefix)-1:]
@@ -441,6 +460,22 @@ func staticDirHandler(mux *socketio.SocketIOServer, prefix string, staticDir str
 		}
 		http.ServeFile(w, r, file)
 	})
+}
+
+func (p *pp) trigger() {
+	for {
+		time.Sleep(1e9 * 60 * 60 * 6)
+		now := time.Now()
+		if p.lastUpdate.Month() == now.Month() {
+			if p.lastUpdate.Day() < p.config.CURRENTMONTHDATE && now.Day() > p.config.CURRENTMONTHDATE {
+				p.getIssuses()
+			}
+		} else {
+			if now.Day() > p.config.CURRENTMONTHDATE {
+				p.getIssuses()
+			}
+		}
+	}
 }
 
 func (p *pp) Run() {
@@ -466,11 +501,13 @@ func (p *pp) Run() {
 	p.sio.HandleFunc("/listener", func(w http.ResponseWriter, r *http.Request) { p.Listener(w, r) })
 	p.sio.HandleFunc("/querydate", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(p.dateStr)) })
 	p.sio.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) { p.proxy(w, r) })
+	p.sio.HandleFunc("/fresh", func(w http.ResponseWriter, r *http.Request) { p.fresh(w, r) })
 
 	err := p.init()
 	if err != nil {
 		log.Fatal("server start failed")
 	}
+	go p.trigger()
 	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
