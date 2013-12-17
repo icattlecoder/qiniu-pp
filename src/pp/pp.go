@@ -408,23 +408,6 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *pp) debugloop() {
-	for {
-		time.Sleep(1e9 * 10)
-		iss := Issues{}
-		err := p.get("/issues.json?status_id=5&offset=0&limit=1&sort=updated_on:desc", &iss)
-		if err == nil && len(iss.Issues) > 0 && iss.Issues[0].Id != p.latestReady.Issues[0].Id {
-			p.latestReady.Issues[0].Author.Name = p.getAuthor(iss.Issues[0].Id)
-			p.latestReady.Issues[0].Project.Name = p.getTopProject(iss.Issues[0].Id)
-			p.latestReady.Issues[0].Updated_on = iss.Issues[0].Updated_on[0:10]
-			_, err := json.Marshal(iss.Issues[0])
-			if err == nil {
-				// p.sio.Broadcast("news", string(bs))
-			}
-		}
-	}
-}
-
 func (p *pp) init() (err error) {
 	p.Projects = make(map[int]string)
 	p.getProjects()
@@ -512,7 +495,7 @@ func (p *pp) Run() {
 		log.Fatal("server start failed")
 	}
 	// log.Println("")
-	log.Fatal(http.ListenAndServe(":8050", p.sio))
+	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
 func news(ns *socketio.NameSpace, title, body string, article_num int) {
