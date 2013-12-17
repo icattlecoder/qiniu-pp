@@ -135,7 +135,51 @@
     <script type="text/javascript" src="/static/bootstrap.min.js"></script>
     <script type="text/javascript" src="/static/jquery.simplyscroll.min.js"></script>
     <script type="text/javascript">
+    (function($) {
+
+        $.extend({
+            /**
+             * 调用方法： var timerArr = $.blinkTitle.show();
+             *          $.blinkTitle.clear(timerArr);
+             */
+            blinkTitle: {
+                show: function() { //有新消息时在title处闪烁提示
+                    var step = 0,
+                        _title = document.title;
+
+                    var timer = setInterval(function() {
+                        step++;
+                        if (step == 3) {
+                            step = 1
+                        };
+                        if (step == 1) {
+                            document.title = '【　　　】' + _title
+                        };
+                        if (step == 2) {
+                            document.title = '【新消息】' + _title
+                        };
+                    }, 500);
+
+                    return [timer, _title];
+                },
+
+                /**
+                 * @param timerArr[0], timer标记
+                 * @param timerArr[1], 初始的title文本内容
+                 */
+                clear: function(timerArr) { //去除闪烁提示，恢复初始title文本
+                    if (timerArr) {
+                        clearInterval(timerArr[0]);
+                        document.title = timerArr[1];
+                    };
+                }
+            }
+        });
+    })(jQuery);
     $(function() {
+
+        var newmsg = false;
+        var timerArr;
 
         $.get("/querydate", function(data) {
             data += ":";
@@ -175,7 +219,11 @@
         socket.on("connect", function() {})
 
         socket.on("ready", function(message, urgency) {
-            var msg = JSON.parse(message)
+            var msg = JSON.parse(message);
+            var title = "[" + msg.project.name + "](" + msg.id + ")" + msg.subject;
+            document.title = title;
+            timerArr = $.blinkTitle.show();
+            newmsg = true;
             var trs = $("#lastedready").children("tr");
             if (trs && trs.length > 0) {
                 trs[trs.length - 1].remove()
@@ -185,13 +233,34 @@
         })
 
         socket.on("finished", function(message, urgency) {
-            var msg = JSON.parse(message)
+            var msg = JSON.parse(message);
+            var title = "[" + msg.project.name + "](" + msg.id + ")" + msg.subject;
+            document.title = title;
+            timerArr = $.blinkTitle.show();
+            newmsg = true;
             var trs = $("#lastedfinished").children("tr");
             if (trs && trs.length > 0) {
                 trs[trs.length - 1].remove()
                 $("#lastedfinished").prepend($.tmpl("issues", msg))
             }
             socket.emit("ping")
+        })
+        $(window).on("blur focus", function(e) {
+            var prevType = $(this).data("prevType");
+
+            if (prevType != e.type) { //  reduce double fire issues
+                switch (e.type) {
+                    case "focus":
+                        if (newmsg && timerArr) {
+                            newmsg = false;
+                            setTimeout(function() { //此处是过一定时间后自动消失
+                                $.blinkTitle.clear(timerArr);
+                            }, 5000);
+                        }
+                        break;
+                }
+            }
+            $(this).data("prevType", e.type);
         })
     })
     </script>
