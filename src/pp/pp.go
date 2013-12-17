@@ -1,3 +1,7 @@
+//author:
+//	wangming
+//	icattlecoder@gmail.com
+
 package main
 
 import (
@@ -22,6 +26,7 @@ type Config struct {
 	LASTMONTHDATE     int    `json:"lastmonth_date"`
 	CURRENTMONTHDATE  int    `json:"currentmonth_date"`
 	APPKEY            string `json:"app_key"`
+	PORT              string `json:"port"`
 }
 
 func (p *pp) getRaw(url string) (body []byte, err error) {
@@ -367,6 +372,13 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 			}
 			is.Author.Name = p.getAuthor(int(iid))
 			is.Updated_on = is.Updated_on[0:10]
+			for k, v := range p.latestReady.Issues {
+				if v.Id == int(iid) {
+					p.latestReady.Issues[k].Author.Name = is.Author.Name
+					p.latestReady.Issues[k].Updated_on = is.Updated_on[0:10]
+					return
+				}
+			}
 			p.latestReady.Pop()
 			p.latestReady.Push(is)
 			p.Notice("ready", is)
@@ -381,8 +393,16 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 			}
 			is.Author.Name = p.getAuthor(int(iid))
 			is.Updated_on = is.Updated_on[0:10]
-			p.latestFinished.Pop()
-			p.latestFinished.Push(is)
+
+			for k, v := range p.finished.Issues {
+				if v.Id == int(iid) {
+					p.finished.Issues[k].Author.Name = is.Author.Name
+					p.finished.Issues[k].Updated_on = is.Updated_on[0:10]
+					return
+				}
+			}
+			p.finished.Pop()
+			p.finished.Push(is)
 			p.Notice("finished", is)
 		})()
 	}
@@ -491,7 +511,7 @@ func (p *pp) Run() {
 	if err != nil {
 		log.Fatal("server start failed")
 	}
-	log.Fatal(http.ListenAndServe(":8080", p.sio))
+	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
 func news(ns *socketio.NameSpace, title, body string, article_num int) {
