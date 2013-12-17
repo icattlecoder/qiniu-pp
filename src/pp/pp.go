@@ -511,7 +511,8 @@ func (p *pp) Run() {
 	if err != nil {
 		log.Fatal("server start failed")
 	}
-	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
+	// log.Println("")
+	log.Fatal(http.ListenAndServe(":8050", p.sio))
 }
 
 func news(ns *socketio.NameSpace, title, body string, article_num int) {
