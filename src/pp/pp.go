@@ -296,46 +296,23 @@ func setCORSHeaders(w http.ResponseWriter, req *http.Request) {
 
 func (p *pp) IssueHandler(w http.ResponseWriter, r *http.Request) {
 	setCORSHeaders(w, r)
-	// var bytes []byte
-	// if strings.Contains(r.URL.Path, "ready2pub") {
-	// } else if strings.Contains(r.URL.Path, "finished") {
-	// 	bytes, _ = json.Marshal(p.finished)
-	// } else if strings.Contains(r.URL.Path, "lastedready") {
-	// 	bytes, _ = json.Marshal(p.latestReady)
-	// } else if strings.Contains(r.URL.Path, "lastedfinished") {
-	// 	log.Println("........................................")
-	// 	bytes, _ = json.Marshal(p.latestFinished)
-	// }
-	// res := string(bytes)
-	// // w.Write(res)
-	// fmt.Fprintf(w, res)
 }
 
 func (p *pp) _ready2pub(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.readyToPub)
-	// res := string(bytes)
 	w.Write(bytes)
 }
 func (p *pp) _finished(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.finished)
 	w.Write(bytes)
-	// res := string(bytes)
-	// w.Write(res)
-	// fmt.Fprintf(w, res)
 }
 func (p *pp) _lastedready(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.latestReady)
 	w.Write(bytes)
-	// res := string(bytes)
-	// w.Write(res)
-	// fmt.Fprintf(w, res)
 }
 func (p *pp) _lastedfinished(w http.ResponseWriter, r *http.Request) {
 	bytes, _ := json.Marshal(p.latestFinished)
 	w.Write(bytes)
-	// res := string(bytes)
-	// w.Write(res)
-	// fmt.Fprintf(w, res)
 }
 
 func (p *pp) Notice(msg string, iss Issue_Comm) {
@@ -494,7 +471,6 @@ func (p *pp) Run() {
 	if err != nil {
 		log.Fatal("server start failed")
 	}
-	// log.Println("")
 	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
