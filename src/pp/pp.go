@@ -123,7 +123,7 @@ func (p *pp) getIssuses() {
 	{
 		iss := Issues{}
 
-		err := p.get("/issues.json?status_id=5&offset=0&limit=5&sort=updated_on:desc", &iss)
+		err := p.get("/issues.json?status_id=80&offset=0&limit=5&sort=updated_on:desc", &iss)
 		if err != nil {
 			log.Println(err)
 		} else {
@@ -139,7 +139,7 @@ func (p *pp) getIssuses() {
 	}
 	{
 		iss := Issues{}
-		err := p.get("/issues.json?status_id=80&offset=0&limit=5&sort=updated_on:desc", &iss)
+		err := p.get("/issues.json?status_id=5&offset=0&limit=5&sort=updated_on:desc", &iss)
 		if err != nil {
 			log.Println(err)
 		} else {
