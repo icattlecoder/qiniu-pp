@@ -8,5 +8,6 @@
     "app_key": "e7c4b4d0013c62055596bfcf4e389f339f28c964",
     "port":"8050",
     "db_username":"root",
-    "db_password":"admin"
+    "db_password":"admin",
+    "db_name":"qiniu"
 }

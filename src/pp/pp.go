@@ -31,6 +31,7 @@ type Config struct {
 	PORT                string `json:"port"`
 	DB_USERNAME         string `json:"db_username"`
 	DB_PASSWORD         string `json:"db_password"`
+	DB_NAME             string `json:"db_name"`
 }
 
 func (p *pp) getRaw(url string) (body []byte, err error) {
@@ -446,7 +447,7 @@ func (p *pp) init() (err error) {
 }
 
 func (p *pp) GetBL() (bl *BL, err error) {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/qiniupp", p.config.DB_USERNAME, p.config.DB_PASSWORD))
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/%s", p.config.DB_NAME, p.config.DB_USERNAME, p.config.DB_PASSWORD))
 	if err != nil {
 		return
 	}
