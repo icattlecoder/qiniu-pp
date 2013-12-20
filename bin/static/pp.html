@@ -60,6 +60,9 @@
     .topfixed tr>td {
         padding:5px;
     }
+    .newissue{
+        /*background-color: #123;*/
+    }
     </style>
 </head>
 
@@ -72,32 +75,22 @@
                 </a>
             </h3>
         </div>
-        <table class="table faketable">
-            <thead>
-                <tr>
-                    <th class="th-subject">任务</th>
-                    <th class="th-author">作者</th>
-                    <th class="th-time">完成时间</th>
-                </tr>
-            </thead>
-        </table>
-
-        最新已完成开发：
-        <table class="topfixed">
-            <tbody id="lastedready"></tbody>
-        </table>
-        <div id="querydate1">
-        </div>
         <div id="scroller1">
-
             <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
                 <tbody id="ready2pub">
                 </tbody>
             </table>
         </div>
     </div>
-    <div region="east" id="scrollH" class="col-md-6 col-right">
 
+    <div region="east" id="scrollH" class="col-md-6 col-right">
         <div class="alert alert-success">
             <h3>已发布
                 <a href="#">
@@ -105,23 +98,15 @@
                 </a>
             </h3>
         </div>
-        <table class="table faketable">
-            <thead>
-                <tr>
-                    <th class="th-subject">任务</th>
-                    <th class="th-author">作者</th>
-                    <th class="th-time">完成时间</th>
-                </tr>
-            </thead>
-        </table>
-        最新已发布：
-        <table class="topfixed">
-            <tbody id="lastedfinished"></tbody>
-        </table>
-        <div id="querydate2">
-        </div>
         <div id="scroller2">
             <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
                 <tbody id="finished">
                 </tbody>
             </table>
@@ -136,7 +121,6 @@
     <script type="text/javascript" src="/static/jquery.simplyscroll.min.js"></script>
     <script type="text/javascript">
     (function($) {
-
         $.extend({
             /**
              * 调用方法： var timerArr = $.blinkTitle.show();
@@ -180,38 +164,36 @@
 
         var newmsg = false;
         var timerArr;
-
-        $.get("/querydate", function(data) {
-            data += ":";
-            $("#querydate1").text(data)
-            $("#querydate2").text(data)
-        });
-
+        var codefinished_cnt = 0;
+        var published_cnt = 0;
         var markup = "<tr>" +
-            '<td class="th-subject"><b>[${project.name}]</b>${subject}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
-            '<td class="th-author">${author.name}</td>' +
-            '<td class="th-time">${updated_on}</td>' +
+            '<td class="th-subject"><b>【${project}】</b>${sub}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
+            '<td class="th-author">${author}</td>' +
+            '<td class="th-time">${update}</td>' +
             "</tr>";
+        var markup2 = '<tr id="${i}" class="newissue">' +
+            '<td class="th-subject"><b>【${project}】</b>${sub}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
+            '<td class="th-author">${author}</td>' +
+            '<td class="th-time">${update}</td>' +
+            "</tr>";
+
         $.template("issues", markup);
-        $.getJSON("/issues/lastedready", function(data) {
+        $.template("newissues", markup2);
+
+        $.getJSON("/issues/codefinished", function(data) {
             console.log(data)
-            $.tmpl("issues", data.issues).appendTo("#lastedready");
+            codefinished_cnt += data.length
+            $.tmpl("issues", data).appendTo("#ready2pub");
             return
         });
-        $.getJSON("/issues/lastedfinished", function(data) {
-            $.tmpl("issues", data.issues).appendTo("#lastedfinished");
-            return
-        });
-        $.getJSON("/issues/ready2pub", function(data) {
+        $.getJSON("/issues/published", function(data) {
             console.log(data)
-            $("#badge_ready").text(data.issues.length)
-            $.tmpl("issues", data.issues).appendTo("#ready2pub");
-            return
-        });
-        $.getJSON("/issues/finished", function(data) {
-            console.log(data)
-            $("#badge_finished").text(data.issues.length)
-            $.tmpl("issues", data.issues).appendTo("#finished");
+            published_cnt += data.length
+            codefinished_cnt += data.length
+            $("#badge_finished").text(published_cnt)
+            $("#badge_ready").text(codefinished_cnt)
+            $.tmpl("issues", data).appendTo("#finished");
+            $.tmpl("issues", data).appendTo("#ready2pub");
             return
         });
         var socket = io.connect();
@@ -220,29 +202,29 @@
 
         socket.on("ready", function(message, urgency) {
             var msg = JSON.parse(message);
-            var title = "[" + msg.project.name + "](" + msg.id + ")" + msg.subject;
+
+            codefinished_cnt += 1
+            $("#badge_ready").text(codefinished_cnt)
+            var title = "【" + msg.project + "】(" + msg.id + ")" + msg.sub;
             document.title = title;
             timerArr = $.blinkTitle.show();
             newmsg = true;
-            var trs = $("#lastedready").children("tr");
-            if (trs && trs.length > 0) {
-                trs[trs.length - 1].remove()
-                $("#lastedready").prepend($.tmpl("issues", msg))
-            }
+            $("#ready2pub").prepend($.tmpl("newissues", msg))
             socket.emit("ping")
         })
 
         socket.on("finished", function(message, urgency) {
             var msg = JSON.parse(message);
-            var title = "[" + msg.project.name + "](" + msg.id + ")" + msg.subject;
+            console.log(msg)
+            published_cnt += 1
+            codefinished_cnt += 1
+            $("#badge_finished").text(published_cnt)
+            $("#badge_ready").text(codefinished_cnt)
+            var title = "【" + msg.project + "】(" + msg.id + ")" + msg.sub;
             document.title = title;
             timerArr = $.blinkTitle.show();
             newmsg = true;
-            var trs = $("#lastedfinished").children("tr");
-            if (trs && trs.length > 0) {
-                trs[trs.length - 1].remove()
-                $("#lastedfinished").prepend($.tmpl("issues", msg))
-            }
+            $("#finished").prepend($.tmpl("newissues", msg))
             socket.emit("ping")
         })
         $(window).on("blur focus", function(e) {

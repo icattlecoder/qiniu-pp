@@ -6,11 +6,13 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/googollee/go-socket.io"
 	"io/ioutil"
 	"log"
+	_ "mysql"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,14 +21,16 @@ import (
 )
 
 type Config struct {
-	REDMINEHOST       string `json:"redmine_host"`
-	DOING_STATUS      []int  `json:"doing_status"`
-	PUBLISHING_STATUS []int  `json:"read2pub_status"`
-	FINISHED_STATUS   []int  `json:"finished_status"`
-	LASTMONTHDATE     int    `json:"lastmonth_date"`
-	CURRENTMONTHDATE  int    `json:"currentmonth_date"`
-	APPKEY            string `json:"app_key"`
-	PORT              string `json:"port"`
+	REDMINEHOST         string `json:"redmine_host"`
+	DOING_STATUS        []int  `json:"doing_status"`
+	CODE_FINISHEDSTATUS []int  `json:"codefinished_status"`
+	PUBLISHED_STATUS    []int  `json:"published_status"`
+	LASTMONTHDATE       int    `json:"lastmonth_date"`
+	CURRENTMONTHDATE    int    `json:"currentmonth_date"`
+	APPKEY              string `json:"app_key"`
+	PORT                string `json:"port"`
+	DB_USERNAME         string `json:"db_username"`
+	DB_PASSWORD         string `json:"db_password"`
 }
 
 func (p *pp) getRaw(url string) (body []byte, err error) {
@@ -79,7 +83,7 @@ func (p *pp) getIssueChangeSets(uid int) string {
 			for _, vv := range v.Details {
 				if vv.Name == "status_id" {
 					i, err := strconv.ParseInt(vv.New_value, 10, 32)
-					if err == nil && (in(int(i), p.config.PUBLISHING_STATUS) || in(int(i), p.config.FINISHED_STATUS)) {
+					if err == nil && (in(int(i), p.config.CODE_FINISHEDSTATUS) || in(int(i), p.config.PUBLISHED_STATUS)) {
 						rd := strings.NewReader(v.Notes)
 						scanner := bufio.NewScanner(rd)
 						if scanner.Scan() {
@@ -123,58 +127,65 @@ func (p *pp) getDate() string {
 	return "%3E%3C" + fmt.Sprintf("%d-%02d-%02d|%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
 }
 
-func (p *pp) getLatest() {
-
-	{
-		iss := Issues{}
-
-		err := p.get("/issues.json?status_id=80&offset=0&limit=5&sort=updated_on:desc", &iss)
-		if err != nil {
-			log.Println(err)
-		} else {
-			p.latestReady = iss
-			go (func() {
-				for k, v := range p.latestReady.Issues {
-					p.latestReady.Issues[k].Author.Name = p.getAuthor(v.Id)
-					p.latestReady.Issues[k].Project.Name = p.getTopProject(v.Project.Id)
-					p.latestReady.Issues[k].Updated_on = v.Updated_on[0:10]
-				}
-			})()
-		}
-	}
-	{
-		iss := Issues{}
-		err := p.get("/issues.json?status_id=5&offset=0&limit=5&sort=updated_on:desc", &iss)
-		if err != nil {
-			log.Println(err)
-		} else {
-			p.latestFinished = iss
-			go (func() {
-				for k, v := range p.latestFinished.Issues {
-					p.latestFinished.Issues[k].Author.Name = p.getAuthor(v.Id)
-					p.latestFinished.Issues[k].Project.Name = p.getTopProject(v.Project.Id)
-					p.latestFinished.Issues[k].Updated_on = v.Updated_on[0:10]
-				}
-			})()
-		}
-	}
-
+func TimeConv(t string) string {
+	d, _ := time.Parse("2006-01-02T15:04:05Z", t)
+	return fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d", d.Year(), d.Month(), d.Day(), d.Hour(), d.Minute(), d.Second())
 }
 
-func (p *pp) getIssuses() {
+func (p *pp) Async() {
+	bl, err := p.GetBL()
+	if err != nil {
+		log.Println("Open DB error:", err)
+		return
+	}
+	defer bl.db.Close()
+	for {
+		isslog_, err := bl.GetLatest()
+		log.Println("isslog_:", isslog_)
+		if err == nil && isslog_.Id != 0 {
+			limitdate := "%3E%3D" + isslog_.Update_on[0:10]
+			asy := func(status []int, msg string) {
+				for _, v := range status {
+					iss := Issues{}
+					url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, 0, limitdate)
+					err = p.get(url, &iss)
+					for _, vv := range iss.Issues {
+						isslog := IssueLog{}
+						isslog.Issue_id = vv.Id
+						isslog.Update_on = vv.Updated_on
+						isslog.Author = p.getAuthor(vv.Id)
+						isslog.Project_id = vv.Project.Id
+						isslog.Issue_Status = vv.Status.Id
+						isslog.Issue_subject = vv.Subject
+						isslog.ProjectName = p.getTopProject(vv.Project.Id)
+						log.Println("isslog:", isslog)
+						err := bl.Upsert(isslog)
+						if err == nil {
+							isslog.Update_on = vv.Updated_on[0:10]
+							p.Notice("msg", isslog)
+						}
+					}
+				}
+			}
+			asy(p.config.CODE_FINISHEDSTATUS, "ready")
+			asy(p.config.PUBLISHED_STATUS, "finished")
 
-	p.getLatest()
+		}
+		time.Sleep(1e9 * 30)
+	}
+}
 
-	limitdate := p.getDate()
+// start="2013-11-01"
+func (p *pp) getIssuses(start, end string) {
+
+	limitdate := "%3E%3C" + fmt.Sprintf("%s|%s", start, end)
 
 	{
-
 		p.finished = Issues{}
-
-		for _, v := range p.config.FINISHED_STATUS {
+		for _, v := range p.config.PUBLISHED_STATUS {
 			cnt := 0
 			iss := Issues{}
-			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, 0, limitdate)
+			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on&updated_on=%s", v, 0, limitdate)
 			err := p.get(url, &iss)
 			if err != nil {
 				log.Println(err)
@@ -184,7 +195,7 @@ func (p *pp) getIssuses() {
 			}
 			cnt = len(iss.Issues)
 			for cnt < iss.Total_count {
-				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on&updated_on=%s", v, cnt, limitdate)
 				err = p.get(url, &iss)
 				if err != nil {
 					log.Println(err)
@@ -196,21 +207,31 @@ func (p *pp) getIssuses() {
 		}
 
 		go (func() {
-			for k, v := range p.finished.Issues {
-				p.finished.Issues[k].Author.Name = p.getAuthor(v.Id)
-				p.finished.Issues[k].Project.Name = p.getTopProject(v.Project.Id)
-				p.finished.Issues[k].Updated_on = v.Updated_on[0:10]
+			bl, err := p.GetBL()
+			if err != nil {
+				log.Println("Open DB err")
+				return
+			}
+			defer bl.db.Close()
+			for _, v := range p.finished.Issues {
+				isslog := IssueLog{}
+				isslog.Issue_id = v.Id
+				isslog.Update_on = TimeConv(v.Updated_on)
+				isslog.Author = p.getAuthor(v.Id)
+				isslog.Project_id = v.Project.Id
+				isslog.Issue_Status = v.Status.Id
+				isslog.Issue_subject = v.Subject
+				bl.Upsert(isslog)
 			}
 		})()
-
 	}
 
 	{
 		p.readyToPub = Issues{}
-		for _, v := range p.config.PUBLISHING_STATUS {
+		for _, v := range p.config.CODE_FINISHEDSTATUS {
 			cnt := 0
 			iss := Issues{}
-			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+			url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on&updated_on=%s", v, cnt, limitdate)
 			err := p.get(url, &iss)
 			if err != nil {
 				log.Println(err)
@@ -220,7 +241,7 @@ func (p *pp) getIssuses() {
 			}
 			cnt = len(iss.Issues)
 			for cnt < iss.Total_count {
-				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, cnt, limitdate)
+				url = fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on&updated_on=%s", v, cnt, limitdate)
 				err = p.get(url, &iss)
 				if err != nil {
 					log.Println(err)
@@ -230,12 +251,22 @@ func (p *pp) getIssuses() {
 				}
 			}
 		}
-
 		go (func() {
-			for k, v := range p.readyToPub.Issues {
-				p.readyToPub.Issues[k].Author.Name = p.getAuthor(v.Id)
-				p.readyToPub.Issues[k].Project.Name = p.getTopProject(v.Project.Id)
-				p.readyToPub.Issues[k].Updated_on = v.Updated_on[0:10]
+			bl, err := p.GetBL()
+			if err != nil {
+				log.Println("Open DB err")
+				return
+			}
+			defer bl.db.Close()
+			for _, v := range p.readyToPub.Issues {
+				isslog := IssueLog{}
+				isslog.Update_on = TimeConv(v.Updated_on)
+				isslog.Issue_id = v.Id
+				isslog.Author = p.getAuthor(v.Id)
+				isslog.Project_id = v.Project.Id
+				isslog.Issue_Status = v.Status.Id
+				isslog.Issue_subject = v.Subject
+				bl.Upsert(isslog)
 			}
 		})()
 	}
@@ -288,42 +319,66 @@ type pp struct {
 	lastUpdate     time.Time
 }
 
-func setCORSHeaders(w http.ResponseWriter, req *http.Request) {
-	h := w.Header()
-	h.Set("Pragma", "no-cache")
-	h.Set("Cache-Control", "no-store, no-cache, must-revalidate")
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Access-Control-Allow-Origin", "*")
-	h.Set("Access-Control-Allow-Methods", "OPTIONS, HEAD, POST")
-	if requests, ok := req.Header["Access-Control-Request-Headers"]; ok {
-		h.Set("Access-Control-Allow-Headers", requests[0])
-	} else {
-		h.Set("Access-Control-Allow-Headers", "X-File-Name, X-File-Type, X-File-Size")
+func (p *pp) getStartQueryTime() string {
+
+	now := time.Now()
+	year := now.Year()
+	mon := now.Month()
+	date := now.Day()
+	lastyear := year
+	if date < p.config.CURRENTMONTHDATE {
+		mon -= 1
 	}
+	lastmon := mon - 1
+	if mon == 1 {
+		lastyear -= 1
+		lastmon = 12
+	}
+	return fmt.Sprintf("%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE)
+
 }
 
-func (p *pp) IssueHandler(w http.ResponseWriter, r *http.Request) {
-	setCORSHeaders(w, r)
+func (p *pp) _codeFinished(w http.ResponseWriter, r *http.Request) {
+	start := p.getStartQueryTime()
+	bl, err := p.GetBL()
+	if err != nil {
+		log.Println("Open DB err")
+		return
+	}
+	defer bl.db.Close()
+	iss, err := bl.GetNoPubIsses(p.config.CODE_FINISHEDSTATUS, p.config.PUBLISHED_STATUS, start)
+	for k, v := range iss {
+		iss[k].ProjectName = p.getTopProject(v.Project_id)
+		iss[k].Update_on = iss[k].Update_on[0:10]
+	}
+	if err != nil {
+		log.Println("get Issues from DB error:", err)
+	}
+	bytes, _ := json.Marshal(iss)
+	w.Write(bytes)
 }
 
-func (p *pp) _ready2pub(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(p.readyToPub)
-	w.Write(bytes)
-}
-func (p *pp) _finished(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(p.finished)
-	w.Write(bytes)
-}
-func (p *pp) _lastedready(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(p.latestReady)
-	w.Write(bytes)
-}
-func (p *pp) _lastedfinished(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(p.latestFinished)
+func (p *pp) _published(w http.ResponseWriter, r *http.Request) {
+	start := p.getStartQueryTime()
+	bl, err := p.GetBL()
+	if err != nil {
+		log.Println("Open DB err")
+		return
+	}
+	defer bl.db.Close()
+	iss, err := bl.GetIssues(p.config.PUBLISHED_STATUS, start)
+	for k, v := range iss {
+		iss[k].ProjectName = p.getTopProject(v.Project_id)
+		iss[k].Update_on = iss[k].Update_on[0:10]
+	}
+	if err != nil {
+		log.Println("get Issues from DB error:", err)
+	}
+	bytes, _ := json.Marshal(iss)
 	w.Write(bytes)
 }
 
-func (p *pp) Notice(msg string, iss Issue_Comm) {
+func (p *pp) Notice(msg string, iss interface{}) {
 	body, err := json.Marshal(iss)
 	if err == nil {
 		p.sio.Broadcast(msg, string(body))
@@ -348,46 +403,36 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	if in(int(istatus_id), p.config.PUBLISHING_STATUS) {
+	if in(int(istatus_id), p.config.CODE_FINISHEDSTATUS) || in(int(istatus_id), p.config.PUBLISHED_STATUS) {
 		go (func() {
+			bl, err := p.GetBL()
+			if err != nil {
+				log.Println("Open DB err")
+				return
+			}
+			defer bl.db.Close()
 			is, err := p.getIssue(int(iid))
 			if err != nil {
 				log.Println(err)
 				return
 			}
-			is.Author.Name = p.getAuthor(int(iid))
-			is.Updated_on = is.Updated_on[0:10]
-			for k, v := range p.latestReady.Issues {
-				if v.Id == int(iid) {
-					p.latestReady.Issues[k].Project.Name = p.getTopProject(is.Project.Id)
-					p.latestReady.Issues[k].Author.Name = is.Author.Name
-					p.latestReady.Issues[k].Updated_on = is.Updated_on[0:10]
-					return
+			isslog := IssueLog{}
+			isslog.Author = p.getAuthor(int(iid))
+			isslog.Issue_id = is.Id
+			isslog.Issue_Status = is.Status.Id
+			isslog.Issue_subject = is.Subject
+			isslog.Project_id = is.Project.Id
+			isslog.Update_on = TimeConv(is.Updated_on)
+			isslog.ProjectName = p.getTopProject(is.Project.Id)
+			log.Println(isslog)
+			err = bl.Upsert(isslog)
+			if err == nil {
+				if in(int(istatus_id), p.config.CODE_FINISHEDSTATUS) {
+					p.Notice("ready", isslog)
+				} else {
+					p.Notice("finished", is)
 				}
 			}
-			p.latestReady.Push(is)
-			p.Notice("ready", is)
-		})()
-	} else if in(int(istatus_id), p.config.FINISHED_STATUS) {
-		go (func() {
-			is, err := p.getIssue(int(iid))
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			is.Author.Name = p.getAuthor(int(iid))
-			is.Updated_on = is.Updated_on[0:10]
-
-			for k, v := range p.finished.Issues {
-				if v.Id == int(iid) {
-					p.finished.Issues[k].Project.Name = p.getTopProject(is.Project.Id)
-					p.finished.Issues[k].Author.Name = is.Author.Name
-					p.finished.Issues[k].Updated_on = is.Updated_on[0:10]
-					return
-				}
-			}
-			p.finished.Push(is)
-			p.Notice("finished", is)
 		})()
 	}
 }
@@ -395,8 +440,17 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 func (p *pp) init() (err error) {
 	p.Projects = make(map[int]string)
 	p.getProjects()
-	p.getIssuses()
+	// p.getIssuses()
 
+	return
+}
+
+func (p *pp) GetBL() (bl *BL, err error) {
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/qiniupp", p.config.DB_USERNAME, p.config.DB_PASSWORD))
+	if err != nil {
+		return
+	}
+	bl = NewBL(db)
 	return
 }
 
@@ -440,10 +494,46 @@ func (p *pp) fresh(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
 	if err != nil {
 		log.Println(err)
+		w.WriteHeader(401)
+		w.Write([]byte("no auth\n"))
+		return
+	}
+	name := r.FormValue("name")
+	start := r.FormValue("start")
+	end := r.FormValue("end")
+	if name == "wangming" && start != "" && end != "" {
+		p.getIssuses(start, end)
+		w.Write([]byte("async...\n"))
+	} else {
+		w.WriteHeader(401)
+		w.Write([]byte("no auth\n"))
+	}
+}
+
+func (p *pp) createTable(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(401)
+		w.Write([]byte("no auth\n"))
+		return
 	}
 	name := r.FormValue("name")
 	if name == "wangming" {
-		p.getIssuses()
+		bl, err := p.GetBL()
+		if err != nil {
+			log.Println("Open DB err")
+			return
+		}
+		defer bl.db.Close()
+		err = bl.CreateTable()
+		if err != nil {
+			log.Println("createTable Error:", err)
+			w.Write([]byte("createTable Error!"))
+		}
+	} else {
+		w.WriteHeader(401)
+		w.Write([]byte("no auth\n"))
 	}
 }
 
@@ -462,22 +552,6 @@ func staticDirHandler(mux *socketio.SocketIOServer, prefix string, staticDir str
 	})
 }
 
-func (p *pp) trigger() {
-	for {
-		time.Sleep(1e9 * 60 * 60 * 6)
-		now := time.Now()
-		if p.lastUpdate.Month() == now.Month() {
-			if p.lastUpdate.Day() < p.config.CURRENTMONTHDATE && now.Day() > p.config.CURRENTMONTHDATE {
-				p.getIssuses()
-			}
-		} else {
-			if now.Day() > p.config.CURRENTMONTHDATE {
-				p.getIssuses()
-			}
-		}
-	}
-}
-
 func (p *pp) Run() {
 
 	sock_config := &socketio.Config{}
@@ -493,21 +567,19 @@ func (p *pp) Run() {
 
 	staticDirHandler(p.sio, "/static/", "static", 0)
 
-	p.sio.HandleFunc("/issues/", func(w http.ResponseWriter, r *http.Request) { p.IssueHandler(w, r) })
-	p.sio.HandleFunc("/issues/ready2pub", func(w http.ResponseWriter, r *http.Request) { p._ready2pub(w, r) })
-	p.sio.HandleFunc("/issues/finished", func(w http.ResponseWriter, r *http.Request) { p._finished(w, r) })
-	p.sio.HandleFunc("/issues/lastedready", func(w http.ResponseWriter, r *http.Request) { p._lastedready(w, r) })
-	p.sio.HandleFunc("/issues/lastedfinished", func(w http.ResponseWriter, r *http.Request) { p._lastedfinished(w, r) })
+	p.sio.HandleFunc("/issues/codefinished", func(w http.ResponseWriter, r *http.Request) { p._codeFinished(w, r) })
+	p.sio.HandleFunc("/issues/published", func(w http.ResponseWriter, r *http.Request) { p._published(w, r) })
 	p.sio.HandleFunc("/listener", func(w http.ResponseWriter, r *http.Request) { p.Listener(w, r) })
-	p.sio.HandleFunc("/querydate", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(p.dateStr)) })
 	p.sio.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) { p.proxy(w, r) })
-	p.sio.HandleFunc("/fresh", func(w http.ResponseWriter, r *http.Request) { p.fresh(w, r) })
+	p.sio.HandleFunc("/async/", func(w http.ResponseWriter, r *http.Request) { p.fresh(w, r) })
+	p.sio.HandleFunc("/createTable/", func(w http.ResponseWriter, r *http.Request) { p.createTable(w, r) })
+	p.sio.HandleFunc("/getProjects/", func(w http.ResponseWriter, r *http.Request) { p.getProjects() })
 
 	err := p.init()
 	if err != nil {
 		log.Fatal("server start failed")
 	}
-	go p.trigger()
+	// go p.Async()
 	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
