@@ -1,7 +1,7 @@
 {
     "redmine_host": "http://pm.qbox.me/redmine",
     "doing_status": [84],
-    "codefinished_status": [80],
+    "codefinished_status": [80,97,90],
     "published_status": [5],
     "lastmonth_date": 1,
     "currentmonth_date": 5,
@@ -9,5 +9,6 @@
     "port":"8050",
     "db_username":"root",
     "db_password":"admin",
-    "db_name":"qiniu"
+    "db_name":"qiniupp",
+    "db_port":"3306"
 }

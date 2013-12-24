@@ -32,6 +32,7 @@ type Config struct {
 	DB_USERNAME         string `json:"db_username"`
 	DB_PASSWORD         string `json:"db_password"`
 	DB_NAME             string `json:"db_name"`
+	DB_PORT             string `json:"db_port"`
 }
 
 func (p *pp) getRaw(url string) (body []byte, err error) {
@@ -428,10 +429,11 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 			log.Println(isslog)
 			err = bl.Upsert(isslog)
 			if err == nil {
+				isslog.Update_on = isslog.Update_on[0:10]
 				if in(int(istatus_id), p.config.CODE_FINISHEDSTATUS) {
 					p.Notice("ready", isslog)
 				} else {
-					p.Notice("finished", is)
+					p.Notice("finished", isslog)
 				}
 			}
 		})()
@@ -447,7 +449,7 @@ func (p *pp) init() (err error) {
 }
 
 func (p *pp) GetBL() (bl *BL, err error) {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/%s", p.config.DB_NAME, p.config.DB_USERNAME, p.config.DB_PASSWORD))
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(127.0.0.1:%s)/%s", p.config.DB_USERNAME, p.config.DB_PASSWORD, p.config.DB_PORT, p.config.DB_NAME))
 	if err != nil {
 		return
 	}

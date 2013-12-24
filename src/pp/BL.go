@@ -86,7 +86,7 @@ func (b *BL) GetNoPubIsses(code_finished_status, published_status []int, start s
 		return str
 	}
 
-	sql := fmt.Sprintf("select * from qn_issuselog where update_on>'%s' and issue_status in (%s) and issue_id not in (select issue_id from qn_issuselog where update_on >'%s' and issue_status in(%s) )", start, strFun(code_finished_status), start, strFun(published_status))
+	sql := fmt.Sprintf("select * from qn_issuselog where update_on>'%s' and issue_status in (%s) and issue_id not in (select issue_id from qn_issuselog where update_on >'%s' and issue_status in(%s) ) order by update_on desc", start, strFun(code_finished_status), start, strFun(published_status))
 	log.Println(sql)
 	rows, err := b.db.Query(sql)
 	if err != nil {
