@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>七牛云存储 | 项目研发进度可视化</title>
+    <link rel='stylesheet' type='text/css' href='/static/bootstrap.min.css' />
+    <link rel='stylesheet' type='text/css' href='/static/main.css' />
+    <link rel="stylesheet" href="/static/jquery.simplyscroll.css" media="all" type="text/css">
+    <link rel="stylesheet" type="text/css" href="http://www.jeasyui.com/easyui/themes/default/easyui.css">
+    <style type="text/css">
+    .sr-only {
+        /*position: relative;*/
+    }
+    body {
+        font-size:14px;
+        padding-top:70px;
+    }
+    .navbar-fixed-top {
+        /*background-color: #eee;*/
+    }
+    .col-right {
+        border-left: 10px solid #428bca;
+        height: 100%;
+    }
+    .col-left {
+        height: 100%;
+    }
+    .alert {
+        border-radius: 0px;
+        padding: 5px;
+        text-align: center;
+        margin-bottom: 0px;
+    }
+    .th-subject {
+        width: 75%;
+    }
+    .th-author {
+        width: 10%;
+    }
+    .th-time {
+        width: 15%;
+    }
+    .faketable {
+        background-color: #FFF;
+        margin-bottom: 0px;
+    }
+    h3 {
+        margin-top: 0px;
+        margin-bottom: 0px;
+    }
+    .topfixed {
+        background-color:#123;
+        color:red;
+        width: 100%;
+    }
+    .topfixed tr {
+        height: 30px;
+        line-height: 30px;
+    }
+    .topfixed tr>td {
+        padding:5px;
+    }
+    .newissue{
+        /*background-color: #123;*/
+    }
+    </style>
+</head>
+
+<body class="container-fluid easyui-layout">
+    <div region="west" class=" col-md-6 col-left">
+        <div class="alert alert-warning">
+            <h3>已完成开发
+                <a href="#">
+                    <span id="badge_ready" class="badge"></span>
+                </a>
+            </h3>
+        </div>
+        <div id="scroller1">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
+                <tbody id="ready2pub">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div region="east" id="scrollH" class="col-md-6 col-right">
+        <div class="alert alert-success">
+            <h3>已发布
+                <a href="#">
+                    <span id="badge_finished" class="badge"></span>
+                </a>
+            </h3>
+        </div>
+        <div id="scroller2">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th class="th-subject">任务</th>
+                        <th class="th-author">作者</th>
+                        <th class="th-time">完成时间</th>
+                    </tr>
+                </thead>
+                <tbody id="finished">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="http://cdn.staticfile.org/jquery/2.0.3/jquery.min.js"></script>
+    <script type="text/javascript" src="/static/socket.io.js"></script>
+    <script type="text/javascript" src="/static/jquery.tmpl.min.js"></script>
+    <script type="text/javascript" src="http://www.jeasyui.com/easyui/jquery.easyui.min.js"></script>
+    <script type="text/javascript" src="/static/bootstrap.min.js"></script>
+    <script type="text/javascript" src="/static/jquery.simplyscroll.min.js"></script>
+    <script type="text/javascript">
+    (function($) {
+        $.extend({
+            /**
+             * 调用方法： var timerArr = $.blinkTitle.show();
+             *          $.blinkTitle.clear(timerArr);
+             */
+            blinkTitle: {
+                show: function() { //有新消息时在title处闪烁提示
+                    var step = 0,
+                        _title = document.title;
+
+                    var timer = setInterval(function() {
+                        step++;
+                        if (step == 3) {
+                            step = 1
+                        };
+                        if (step == 1) {
+                            document.title = '【　　　】' + _title
+                        };
+                        if (step == 2) {
+                            document.title = '【新消息】' + _title
+                        };
+                    }, 500);
+
+                    return [timer, _title];
+                },
+
+                /**
+                 * @param timerArr[0], timer标记
+                 * @param timerArr[1], 初始的title文本内容
+                 */
+                clear: function(timerArr) { //去除闪烁提示，恢复初始title文本
+                    if (timerArr) {
+                        clearInterval(timerArr[0]);
+                        document.title = timerArr[1];
+                    };
+                }
+            }
+        });
+    })(jQuery);
+    $(function() {
+
+        var newmsg = false;
+        var timerArr;
+        var codefinished_cnt = 0;
+        var published_cnt = 0;
+        var markup = "<tr>" +
+            '<td class="th-subject"><b>【${project}】</b>${sub}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
+            '<td class="th-author">${author}</td>' +
+            '<td class="th-time">${update}</td>' +
+            "</tr>";
+        var markup2 = '<tr id="${i}" class="newissue">' +
+            '<td class="th-subject"><b>【${project}】</b>${sub}<a href="http://pm.qbox.me/redmine/issues/${id}" target="blank">(${id})</a></td>' +
+            '<td class="th-author">${author}</td>' +
+            '<td class="th-time">${update}</td>' +
+            "</tr>";
+
+        $.template("issues", markup);
+        $.template("newissues", markup2);
+
+        $.getJSON("/issues/codefinished", function(data) {
+            console.log(data)
+            codefinished_cnt += data.length
+            $.tmpl("issues", data).appendTo("#ready2pub");
+            return
+        });
+        $.getJSON("/issues/published", function(data) {
+            console.log(data)
+            published_cnt += data.length
+            codefinished_cnt += data.length
+            $("#badge_finished").text(published_cnt)
+            $("#badge_ready").text(codefinished_cnt)
+            $.tmpl("issues", data).appendTo("#finished");
+            $.tmpl("issues", data).appendTo("#ready2pub");
+            return
+        });
+        var socket = io.connect();
+
+        socket.on("connect", function() {})
+
+        socket.on("ready", function(message, urgency) {
+            var msg = JSON.parse(message);
+
+            codefinished_cnt += 1
+            $("#badge_ready").text(codefinished_cnt)
+            var title = "【" + msg.project + "】(" + msg.id + ")" + msg.sub;
+            document.title = title;
+            timerArr = $.blinkTitle.show();
+            newmsg = true;
+            $("#ready2pub").prepend($.tmpl("newissues", msg))
+            socket.emit("ping")
+        })
+
+        socket.on("finished", function(message, urgency) {
+            var msg = JSON.parse(message);
+            console.log(msg)
+            published_cnt += 1
+            codefinished_cnt += 1
+            $("#badge_finished").text(published_cnt)
+            $("#badge_ready").text(codefinished_cnt)
+            var title = "【" + msg.project + "】(" + msg.id + ")" + msg.sub;
+            document.title = title;
+            timerArr = $.blinkTitle.show();
+            newmsg = true;
+            $("#finished").prepend($.tmpl("newissues", msg))
+            socket.emit("ping")
+        })
+        $(window).on("blur focus", function(e) {
+            var prevType = $(this).data("prevType");
+
+            if (prevType != e.type) { //  reduce double fire issues
+                switch (e.type) {
+                    case "focus":
+                        if (newmsg && timerArr) {
+                            newmsg = false;
+                            setTimeout(function() { //此处是过一定时间后自动消失
+                                $.blinkTitle.clear(timerArr);
+                            }, 5000);
+                        }
+                        break;
+                }
+            }
+            $(this).data("prevType", e.type);
+        })
+    })
+    </script>
+
+</body>
+
+</html>
