@@ -76,23 +76,25 @@ func (p *pp) getIssue(uid int) (is Issue_Comm, err error) {
 	return
 }
 
-func (p *pp) getIssueChangeSets(uid int) string {
+func (p *pp) getIssueChangeSets(uid int)(author string,update_on string) {
 	set := IssueChangeSet{}
 	err := p.get(fmt.Sprintf("/issues/%d.json?include=journals", uid), &set)
 	if err == nil {
+		update_on = set.Issues.Updated_on
 		// log.Println("...", set.Issues.Journals)
 		for _, v := range set.Issues.Journals {
+			update_on = v.Created_on
 			for _, vv := range v.Details {
 				if vv.Name == "status_id" {
 					i, err := strconv.ParseInt(vv.New_value, 10, 32)
 					if err == nil && (in(int(i), p.config.CODE_FINISHEDSTATUS) || in(int(i), p.config.PUBLISHED_STATUS)) {
 						rd := strings.NewReader(v.Notes)
 						scanner := bufio.NewScanner(rd)
-						if scanner.Scan() {
+						for scanner.Scan(){
 							l := scanner.Text()
 							if strings.Contains(l, "* author:") {
-								log.Println("author:", l[9:])
-								return l[9:]
+								author, update_on = l[9:],v.Created_on
+								return
 							}
 						}
 					}
@@ -102,12 +104,12 @@ func (p *pp) getIssueChangeSets(uid int) string {
 	} else {
 		log.Println(err)
 	}
-	return ""
+	return
 }
 
 //获取开发人员
 //* autho:<name>
-func (p *pp) getAuthor(uid int) string {
+func (p *pp) getAuthor(uid int) (string,string) {
 	return p.getIssueChangeSets(uid)
 }
 
@@ -157,8 +159,11 @@ func (p *pp) getIssuses(start, end string) {
 			for _, v := range finished.Issues {
 				isslog := IssueLog{}
 				isslog.Issue_id = v.Id
-				isslog.Update_on = TimeConv(v.Updated_on)
-				isslog.Author = p.getAuthor(v.Id)
+				author,up := p.getAuthor(v.Id)
+				if author!="" {
+					isslog.Author = author
+				}
+				isslog.Update_on = TimeConv(up)
 				isslog.Project_id = v.Project.Id
 				isslog.Issue_Status = v.Status.Id
 				isslog.Issue_subject = v.Subject
@@ -201,9 +206,12 @@ func (p *pp) getIssuses(start, end string) {
 			defer bl.db.Close()
 			for _, v := range readyToPub.Issues {
 				isslog := IssueLog{}
-				isslog.Update_on = TimeConv(v.Updated_on)
 				isslog.Issue_id = v.Id
-				isslog.Author = p.getAuthor(v.Id)
+				author,up := p.getAuthor(v.Id)
+				if author!="" {
+					isslog.Author = author
+				}
+				isslog.Update_on = TimeConv(up)
 				isslog.Project_id = v.Project.Id
 				isslog.Issue_Status = v.Status.Id
 				isslog.Issue_subject = v.Subject
@@ -357,12 +365,17 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			isslog := IssueLog{}
-			isslog.Author = p.getAuthor(int(iid))
+
+			author,up := p.getAuthor(int(iid))
+			if author!="" {
+				isslog.Author = author
+			}
+			isslog.Update_on = TimeConv(up)
+
 			isslog.Issue_id = is.Id
 			isslog.Issue_Status = is.Status.Id
 			isslog.Issue_subject = is.Subject
 			isslog.Project_id = is.Project.Id
-			isslog.Update_on = TimeConv(is.Updated_on)
 			isslog.ProjectName = p.getTopProject(is.Project.Id)
 			log.Println(isslog)
 			err = bl.Upsert(isslog)
@@ -520,6 +533,12 @@ func (p *pp) Run() {
 	p.sio.HandleFunc("/async/", func(w http.ResponseWriter, r *http.Request) { p.fresh(w, r) })
 	p.sio.HandleFunc("/createTable/", func(w http.ResponseWriter, r *http.Request) { p.createTable(w, r) })
 	p.sio.HandleFunc("/getProjects/", func(w http.ResponseWriter, r *http.Request) { p.getProjects() })
+	p.sio.HandleFunc("/getIssuse/", func(w http.ResponseWriter, r *http.Request) { 
+		qs:=r.URL.Query()
+		id:=qs.Get("id")
+		iid, _ := strconv.ParseInt(id, 10, 32)
+		p.getIssueChangeSets(int(iid))
+		})
 
 	staticDirHandler(p.sio, "/", "static", 0)
 
