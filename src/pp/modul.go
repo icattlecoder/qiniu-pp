@@ -81,13 +81,3 @@ type Projects struct {
 	Total_count int       `json:"total_count"`
 	Projects    []Project `json:"projects"`
 }
-
-func (i *Issues) Push(iss Issue_Comm) {
-
-	l := len(i.Issues)
-	for k := l - 1; k > 0; k-- {
-		i.Issues[k] = i.Issues[k-1]
-	}
-	i.Issues[0] = iss
-
-}

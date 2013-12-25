@@ -111,70 +111,9 @@ func (p *pp) getAuthor(uid int) string {
 	return p.getIssueChangeSets(uid)
 }
 
-func (p *pp) getDate() string {
-	now := time.Now()
-	year := now.Year()
-	mon := now.Month()
-	date := now.Day()
-	lastyear := year
-	if date < p.config.CURRENTMONTHDATE {
-		mon -= 1
-	}
-	lastmon := mon - 1
-	if mon == 1 {
-		lastyear -= 1
-		lastmon = 12
-	}
-	p.dateStr = fmt.Sprintf("%d-%02d-%02d至%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
-	return "%3E%3C" + fmt.Sprintf("%d-%02d-%02d|%d-%02d-%02d", lastyear, lastmon, p.config.LASTMONTHDATE, year, mon, p.config.CURRENTMONTHDATE)
-}
-
 func TimeConv(t string) string {
 	d, _ := time.Parse("2006-01-02T15:04:05Z", t)
 	return fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d", d.Year(), d.Month(), d.Day(), d.Hour(), d.Minute(), d.Second())
-}
-
-func (p *pp) Async() {
-	bl, err := p.GetBL()
-	if err != nil {
-		log.Println("Open DB error:", err)
-		return
-	}
-	defer bl.db.Close()
-	for {
-		isslog_, err := bl.GetLatest()
-		log.Println("isslog_:", isslog_)
-		if err == nil && isslog_.Id != 0 {
-			limitdate := "%3E%3D" + isslog_.Update_on[0:10]
-			asy := func(status []int, msg string) {
-				for _, v := range status {
-					iss := Issues{}
-					url := fmt.Sprintf("/issues.json?status_id=%d&offset=%d&limit=100&sort=updated_on:desc&updated_on=%s", v, 0, limitdate)
-					err = p.get(url, &iss)
-					for _, vv := range iss.Issues {
-						isslog := IssueLog{}
-						isslog.Issue_id = vv.Id
-						isslog.Update_on = vv.Updated_on
-						isslog.Author = p.getAuthor(vv.Id)
-						isslog.Project_id = vv.Project.Id
-						isslog.Issue_Status = vv.Status.Id
-						isslog.Issue_subject = vv.Subject
-						isslog.ProjectName = p.getTopProject(vv.Project.Id)
-						log.Println("isslog:", isslog)
-						err := bl.Upsert(isslog)
-						if err == nil {
-							isslog.Update_on = vv.Updated_on[0:10]
-							p.Notice("msg", isslog)
-						}
-					}
-				}
-			}
-			asy(p.config.CODE_FINISHEDSTATUS, "ready")
-			asy(p.config.PUBLISHED_STATUS, "finished")
-
-		}
-		time.Sleep(1e9 * 30)
-	}
 }
 
 // start="2013-11-01"
@@ -183,7 +122,7 @@ func (p *pp) getIssuses(start, end string) {
 	limitdate := "%3E%3C" + fmt.Sprintf("%s|%s", start, end)
 
 	{
-		p.finished = Issues{}
+		finished := Issues{}
 		for _, v := range p.config.PUBLISHED_STATUS {
 			cnt := 0
 			iss := Issues{}
@@ -192,8 +131,8 @@ func (p *pp) getIssuses(start, end string) {
 			if err != nil {
 				log.Println(err)
 			} else {
-				p.finished.Total_count += iss.Total_count
-				p.finished.Issues = append(p.finished.Issues, iss.Issues...)
+				finished.Total_count += iss.Total_count
+				finished.Issues = append(finished.Issues, iss.Issues...)
 			}
 			cnt = len(iss.Issues)
 			for cnt < iss.Total_count {
@@ -202,7 +141,7 @@ func (p *pp) getIssuses(start, end string) {
 				if err != nil {
 					log.Println(err)
 				} else {
-					p.finished.Issues = append(p.finished.Issues, iss.Issues...)
+					finished.Issues = append(finished.Issues, iss.Issues...)
 					cnt += len(iss.Issues)
 				}
 			}
@@ -215,7 +154,7 @@ func (p *pp) getIssuses(start, end string) {
 				return
 			}
 			defer bl.db.Close()
-			for _, v := range p.finished.Issues {
+			for _, v := range finished.Issues {
 				isslog := IssueLog{}
 				isslog.Issue_id = v.Id
 				isslog.Update_on = TimeConv(v.Updated_on)
@@ -229,7 +168,7 @@ func (p *pp) getIssuses(start, end string) {
 	}
 
 	{
-		p.readyToPub = Issues{}
+		readyToPub := Issues{}
 		for _, v := range p.config.CODE_FINISHEDSTATUS {
 			cnt := 0
 			iss := Issues{}
@@ -238,8 +177,8 @@ func (p *pp) getIssuses(start, end string) {
 			if err != nil {
 				log.Println(err)
 			} else {
-				p.readyToPub.Total_count += iss.Total_count
-				p.readyToPub.Issues = append(p.readyToPub.Issues, iss.Issues...)
+				readyToPub.Total_count += iss.Total_count
+				readyToPub.Issues = append(readyToPub.Issues, iss.Issues...)
 			}
 			cnt = len(iss.Issues)
 			for cnt < iss.Total_count {
@@ -248,7 +187,7 @@ func (p *pp) getIssuses(start, end string) {
 				if err != nil {
 					log.Println(err)
 				} else {
-					p.readyToPub.Issues = append(p.readyToPub.Issues, iss.Issues...)
+					readyToPub.Issues = append(readyToPub.Issues, iss.Issues...)
 					cnt += len(iss.Issues)
 				}
 			}
@@ -260,7 +199,7 @@ func (p *pp) getIssuses(start, end string) {
 				return
 			}
 			defer bl.db.Close()
-			for _, v := range p.readyToPub.Issues {
+			for _, v := range readyToPub.Issues {
 				isslog := IssueLog{}
 				isslog.Update_on = TimeConv(v.Updated_on)
 				isslog.Issue_id = v.Id
@@ -299,6 +238,7 @@ func (p *pp) getTopProject(id int) string {
 func (p *pp) getProjects() {
 	ps := Projects{}
 	err := p.get("/projects.json", &ps)
+
 	if err != nil {
 		log.Println(err)
 	} else {
@@ -312,8 +252,6 @@ type pp struct {
 	issues         Issues
 	latestReady    Issues
 	latestFinished Issues
-	readyToPub     Issues
-	finished       Issues
 	rawprojects    Projects
 	Projects       map[int]string
 	sio            *socketio.SocketIOServer
@@ -542,8 +480,14 @@ func (p *pp) createTable(w http.ResponseWriter, r *http.Request) {
 
 func staticDirHandler(mux *socketio.SocketIOServer, prefix string, staticDir string, flags int) {
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
-		file := staticDir + r.URL.Path[len(prefix)-1:]
-		log.Print(file)
+
+		file := staticDir
+		if prefix=="/"&&r.URL.Path=="/"{
+			file +="/index.html"
+		}else{
+			file += r.URL.Path[len(staticDir)+1:]
+		}
+
 		if (flags) == 0 {
 			fi, err := os.Stat(file)
 			if err != nil || fi.IsDir() {
@@ -551,6 +495,7 @@ func staticDirHandler(mux *socketio.SocketIOServer, prefix string, staticDir str
 				return
 			}
 		}
+
 		http.ServeFile(w, r, file)
 	})
 }
@@ -568,8 +513,6 @@ func (p *pp) Run() {
 		p.sio.In("/pol").Broadcast("pong", nil)
 	})
 
-	staticDirHandler(p.sio, "/static/", "static", 0)
-
 	p.sio.HandleFunc("/issues/codefinished", func(w http.ResponseWriter, r *http.Request) { p._codeFinished(w, r) })
 	p.sio.HandleFunc("/issues/published", func(w http.ResponseWriter, r *http.Request) { p._published(w, r) })
 	p.sio.HandleFunc("/listener", func(w http.ResponseWriter, r *http.Request) { p.Listener(w, r) })
@@ -578,11 +521,12 @@ func (p *pp) Run() {
 	p.sio.HandleFunc("/createTable/", func(w http.ResponseWriter, r *http.Request) { p.createTable(w, r) })
 	p.sio.HandleFunc("/getProjects/", func(w http.ResponseWriter, r *http.Request) { p.getProjects() })
 
+	staticDirHandler(p.sio, "/", "static", 0)
+
 	err := p.init()
 	if err != nil {
 		log.Fatal("server start failed")
 	}
-	// go p.Async()
 	log.Fatal(http.ListenAndServe(":"+p.config.PORT, p.sio))
 }
 
