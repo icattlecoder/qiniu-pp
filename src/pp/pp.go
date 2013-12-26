@@ -80,6 +80,22 @@ func (p *pp) getIssueChangeSets(uid int)(author string,update_on string) {
 	set := IssueChangeSet{}
 	err := p.get(fmt.Sprintf("/issues/%d.json?include=journals", uid), &set)
 	if err == nil {
+		defer (func(){
+			if in(set.Issues.Status.Id,p.config.PUBLISHED_STATUS){
+				update_on = set.Issues.Updated_on
+			}
+		})()
+		find:=func(notes string)string{
+			rd := strings.NewReader(notes)
+			scanner := bufio.NewScanner(rd)
+			for scanner.Scan(){
+				l := scanner.Text()
+				if strings.Contains(l, "* author:") {
+					return l[9:]
+				}
+			}
+			return ""
+		}
 		update_on = set.Issues.Updated_on
 		// log.Println("...", set.Issues.Journals)
 		for _, v := range set.Issues.Journals {
@@ -88,16 +104,19 @@ func (p *pp) getIssueChangeSets(uid int)(author string,update_on string) {
 				if vv.Name == "status_id" {
 					i, err := strconv.ParseInt(vv.New_value, 10, 32)
 					if err == nil && (in(int(i), p.config.CODE_FINISHEDSTATUS) || in(int(i), p.config.PUBLISHED_STATUS)) {
-						rd := strings.NewReader(v.Notes)
-						scanner := bufio.NewScanner(rd)
-						for scanner.Scan(){
-							l := scanner.Text()
-							if strings.Contains(l, "* author:") {
-								author, update_on = l[9:],v.Created_on
-								return
-							}
+						update_on = v.Created_on
+						if author=find(v.Notes);author!=""{
+							return
 						}
 					}
+				}
+			}
+		}
+		//again
+		if author == "" {
+			for _, v := range set.Issues.Journals {
+				if author=find(v.Notes);author!=""{
+					return
 				}
 			}
 		}
@@ -257,14 +276,9 @@ func (p *pp) getProjects() {
 //====================================================
 type pp struct {
 	config         *Config
-	issues         Issues
-	latestReady    Issues
-	latestFinished Issues
 	rawprojects    Projects
 	Projects       map[int]string
 	sio            *socketio.SocketIOServer
-	dateStr        string
-	lastUpdate     time.Time
 }
 
 func (p *pp) getStartQueryTime() string {
@@ -394,8 +408,6 @@ func (p *pp) Listener(w http.ResponseWriter, r *http.Request) {
 func (p *pp) init() (err error) {
 	p.Projects = make(map[int]string)
 	p.getProjects()
-	// p.getIssuses()
-
 	return
 }
 
@@ -411,6 +423,7 @@ func (p *pp) GetBL() (bl *BL, err error) {
 func New() (p pp) {
 	body, err := ioutil.ReadFile("./pp.json")
 	if err != nil {
+
 		fmt.Println(`
 pp.json:
 {
@@ -420,6 +433,11 @@ pp.json:
     "finished_status": [5],
     "lastmonth_date": 1,
     "currentmonth_date": 1
+    "port":8080 
+    "db_username":root 
+    "db_pasword": ******
+    "db_name": redminedb 
+    "db_port": 3306 
 }`)
 
 	}
